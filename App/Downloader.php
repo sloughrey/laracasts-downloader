@@ -102,7 +102,9 @@ class Downloader
                 'series'  => 1,
                 'lessons' => 1,
                 'failed_episode' => 0,
-                'failed_lesson' => 0
+                'failed_lesson' => 0,
+                'maxDownloads' => 31,
+                'numDownloads' => 0,
             ];
 
             Utils::box('Authenticating');
@@ -188,8 +190,18 @@ class Downloader
         Utils::box('Downloading Lessons');
         foreach ($diff['lessons'] as $lesson) {
 
-            if($this->client->downloadLesson($lesson) === false) {
-                $counter['failed_lesson']++;
+            if ($counter['numDownloads'] <= $counter['maxDownloads'] && $counter['failed_lesson'] < 5) {
+
+                if($this->client->downloadLesson($lesson) === false) {
+                    $counter['failed_lesson']++;
+                }
+                else {
+                    $counter['numDownloads']++;
+                }
+            }
+            else {
+                Utils::write("Stopping script due to download failure, possible daily download limit reached");
+                break;
             }
 
             Utils::write(sprintf("Current: %d of %d total. Left: %d",
@@ -214,15 +226,24 @@ class Downloader
             $this->system->createSerieFolderIfNotExists($serie);
             foreach ($episodes as $episode) {
 
-                if($this->client->downloadSerieEpisode($serie, $episode) === false) {
-                    $counter['failed_episode'] = $counter['failed_episode'] +1;
-                }
+                if ($counter['numDownloads'] <= $counter['maxDownloads'] && $counter['failed_episode'] < 5) {
+                    if($this->client->downloadSerieEpisode($serie, $episode) === false) {
+                        $counter['failed_episode'] = $counter['failed_episode'] +1;
+                    }
+                    else {
+                        $counter['numDownloads']++;
+                    }
 
-                Utils::write(sprintf("Current: %d of %d total. Left: %d",
-                    $counter['series']++,
-                    $new_episodes,
-                    $new_episodes - $counter['series'] + 1
-                ));
+                    Utils::write(sprintf("Current: %d of %d total. Left: %d",
+                        $counter['series']++,
+                        $new_episodes,
+                        $new_episodes - $counter['series'] + 1
+                    ));
+                }
+                else {
+                    Utils::write("Stopping script due to download failure, possible daily download limit reached");
+                    break 2;
+                }
             }
         }
     }
@@ -241,35 +262,35 @@ class Downloader
             "series-episodes:"
         );
         $options = getopt($short_options, $long_options);
-        
+
         Utils::box(sprintf("Checking for options %s", json_encode($options)));
-        
+
         if(count($options) == 0) {
             Utils::write('No options provided');
             return false;
         }
-        
+
         $slugify = new Slugify();
         $slugify->addRule("'", '');
-        
+
         if(isset($options['s']) || isset($options['series-name'])) {
             $series = isset($options['s']) ? $options['s'] : $options['series-name'];
             if(!is_array($series))
             $series = [$series];
-            
+
             Utils::write(sprintf("Series names provided: %s", json_encode($series)));
-            
-            
+
+
             $this->wantSeries = array_map(function ($serie) use ($slugify) {
                 return $slugify->slugify($serie);
             }, $series);
-            
+
             Utils::write(sprintf("Series names provided: %s", json_encode($this->wantSeries)));
 
 
             if(isset($options['e']) || isset($options['series-episodes'])) {
                 $episodes = isset($options['e']) ? $options['e'] : $options['series-episodes'];
-    
+
                 Utils::write(sprintf("Episode numbers provided: %s", json_encode($episodes)));
                 if(strpos($episodes, ',') === false){
                     if(!is_array($episodes))
@@ -277,17 +298,17 @@ class Downloader
                 }else{
                     $episodes = explode(',', $episodes);
                 }
-                
+
                 sort($episodes, SORT_NUMERIC);
                 $this->filterSeriesEpisodes = $episodes;
-    
+
                 Utils::write(sprintf("Episode numbers provided: %s", json_encode($this->filterSeriesEpisodes)));
-    
+
             }
-            
+
             $found = true;
         }
-        
+
         if(isset($options['l']) || isset($options['lesson-name'])) {
             $lessons = isset($options['l']) ? $options['l'] : $options['lesson-name'];
 
@@ -342,7 +363,7 @@ class Downloader
                 Utils::write("Lesson '".$lesson."' not found!");
             }
         }
-        
+
         return $selectedLessonsOnline;
     }
 }
